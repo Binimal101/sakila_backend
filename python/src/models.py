@@ -26,8 +26,9 @@ from sqlalchemy.dialects.mysql import (
     ENUM,
     SET,
     TIMESTAMP,
-    GEOMETRY,
 )
+
+from geoalchemy2 import Geometry # not handled in std sqlalchemy instance
 
 #Base super for table models
 from sqlalchemy.orm import DeclarativeBase
@@ -228,7 +229,6 @@ class Payment(Base):
         Index("fk_payment_rental", "rental_id"),
     )
 
-
 class Customer(Base):
     __tablename__ = "customer"
 
@@ -312,7 +312,7 @@ class Address(Base):
     city_id = Column(SMALLINT(unsigned=True), ForeignKey("city.city_id"), nullable=False)
     postal_code = Column(String(10))
     phone = Column(String(20), nullable=False)
-    location = Column(GEOMETRY, nullable=False)  # MySQL spatial type
+    location = Column(Geometry(geometry_type="GEOMETRY"), nullable=False)  # MySQL spatial type, inferred type from geoalchemy2
 
     last_update = Column(
         TIMESTAMP,
