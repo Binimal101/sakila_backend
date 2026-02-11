@@ -1,7 +1,7 @@
-from fastapi import FastAPI, APIRouter
-import routes
-
 from . import app, router
+
+# Import package-relative `routes` so it can register endpoints on `router`
+from . import routes
 
 app.include_router(router)
 
