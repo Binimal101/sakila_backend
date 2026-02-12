@@ -7,6 +7,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.alchemy import models
+from sqlalchemy import inspect, text
+from inspect import isclass, getmembers
+
+try:
+    from geoalchemy2.shape import to_shape
+    from geoalchemy2.elements import WKBElement
+except Exception:
+    to_shape = None
+    WKBElement = None
+
+try:
+    from shapely import wkb as shapely_wkb
+except Exception:
+    shapely_wkb = None
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -52,12 +66,33 @@ def dump_model_rows(session, model, outdir: Path, limit: int = 100):
                     setattr(inst, k, v)
                 except Exception:
                     pass
-            # normalize values for JSON output
-            try:
-                json.dumps(v)
-                row_dict[k] = v
-            except Exception:
-                row_dict[k] = str(v)
+            # Hotfix: convert geometry WKB/bytes into a usable lat/lng dict
+            def _geom_to_lat_lng(val):
+                if val is None:
+                    return None
+                try:
+                    if WKBElement is not None and isinstance(val, WKBElement) and to_shape is not None:
+                        geom = to_shape(val)
+                        return {"lat": geom.y, "lng": geom.x}
+                    if isinstance(val, (bytes, bytearray)) and shapely_wkb is not None:
+                        geom = shapely_wkb.loads(bytes(val))
+                        return {"lat": geom.y, "lng": geom.x}
+                    if hasattr(val, "x") and hasattr(val, "y"):
+                        return {"lat": getattr(val, "y"), "lng": getattr(val, "x")}
+                except Exception:
+                    return None
+                return None
+
+            geom_conv = _geom_to_lat_lng(v)
+            if geom_conv is not None:
+                row_dict[k] = geom_conv
+            else:
+                # normalize values for JSON output
+                try:
+                    json.dumps(v)
+                    row_dict[k] = v
+                except Exception:
+                    row_dict[k] = str(v)
         items.append(row_dict)
 
     out_path = outdir / f"{model.__name__}.json"
