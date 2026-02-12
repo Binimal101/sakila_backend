@@ -1,9 +1,5 @@
-from . import app, router
-
-# Import package-relative `routes` so it can register endpoints on `router`
-from . import routes
-
-app.include_router(router)
+from src.api import app 
+import src.api.routes #initializes routes in app
 
 if __name__ == "__main__":
     import uvicorn

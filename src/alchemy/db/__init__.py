@@ -11,7 +11,6 @@ engine = create_engine( #synchronous engine, lets not take into acct. race condi
     poolclass=QueuePool,
     pool_size=5,
     pool_pre_ping=True,  # Verify connections before using them
-    echo=False,  # Set to True for SQL logging during development
 )
 
 SessionLocal = sessionmaker( #session factory
@@ -22,15 +21,10 @@ SessionLocal = sessionmaker( #session factory
 
 def get_db():
     """
-    Dependency function for FastAPI or similar frameworks.
-    
-    Usage in FastAPI:
+    Dependency func for fAPI.
         @app.get("/items/")
-        def read_items(db: Session = Depends(get_db)):
+        def read_items(db: Session = fastapi.Depends(get_db)):
             return db.query(Item).all()
-    
-    Yields:
-        Session: SQLAlchemy session instance
     """
     db = SessionLocal()
     try:
