@@ -1,14 +1,14 @@
 import src
 
-from pydantic import BaseModel, model_validator, Field, constr
+from pydantic import BaseModel, Field, constr # fields are for simple validation, constr for expressive validation
 from typing import Optional
 from enum import Enum
 
 class top5RentalsInput(BaseModel):
-    store_id: int
+    store_id: int = Field(gt=0)
 
 class detailsFilmInput(BaseModel):
-    film_id: int
+    film_id: int = Field(gt=0)
 
 class top5ActorsInput(BaseModel):
     store_id: Optional[int] #if optional, we assume from ALL stores
@@ -54,8 +54,6 @@ StrictPhoneNumber = constr(
     pattern=r"^(\+[0-9]{1,3}[ -]?)?[0-9]{3}[ |-]?[0-9]{3}( |-)?[0-9]{4}$",
     strip_whitespace=True,
 )
-
-
 class Address(BaseModel):
     address_line1: str
     address_line2: Optional[str]

@@ -1,49 +1,32 @@
 from typing import Dict, Any
 from fastapi import Depends, HTTPException
 
-from .inputModels import customerCreateInput, Address
-
-
-class GeocoderClient:
-    """Simple mock geocoder client. Replace with real client implementation."""
-
-    async def validate_address(self, addr: Address) -> Dict[str, Any] | None:
-        # Placeholder: in real code call external service with timeouts/retries.
-        # For demo, consider any address_line longer than 5 chars as valid.
-        if not addr or not addr.address_line or len(addr.address_line.strip()) < 5:
-            return None
-        # Return a normalized address dict with lat/lon stub
-        return {
-            "formatted": f"{addr.address_line}, {addr.city or ''} {addr.state or ''}".strip(', '),
-            "latitude": 0.0,
-            "longitude": 0.0,
-            "components": {
-                "address_line": addr.address_line,
-                "city": addr.city,
-                "state": addr.state,
-                "postal_code": addr.postal_code,
-                "country": addr.country,
-            },
-        }
-
-
-def get_geocoder() -> GeocoderClient:
-    return GeocoderClient()
+from .inputModels import customerCreateInput
 
 
 async def validate_address_dep(
-    payload: customerCreateInput = Depends(),
-    geocoder: GeocoderClient = Depends(get_geocoder),
+    payload: customerCreateInput = Depends(), #fastapi will inject http-body into pydantic model typed here
 ) -> Dict[str, Any]:
-    """Dependency that validates and normalizes `payload.address`.
+    """Validate `payload.address` locally and return a normalized dict.
 
-    - `payload` is parsed by FastAPI into `customerCreateInput`.
-    - We extract `payload.address` and call the geocoder.
-    - If validation fails, raise HTTPException(422).
-    - Returns the normalized address dict for the route to use.
+    This removes external reverse-geocoding. The function returns
+    deterministic dummy coordinates (0.0, 0.0) for all valid addresses.
     """
     addr = payload.address
-    normalized = await geocoder.validate_address(addr)
-    if not normalized:
-        raise HTTPException(status_code=422, detail="Address could not be validated")
-    return normalized
+    line = getattr(addr, "address_line1", None)
+    if not addr or not line or len(line.strip()) < 5:
+        raise HTTPException(status_code=-6, detail="Address could not be validated")
+
+    line = line.strip()
+    return {
+        "formatted": f"{line}, {addr.city or ''} {addr.district or ''}".strip(', '),
+        "latitude": 0.0,
+        "longitude": 0.0,
+        "components": {
+            "address_line": line,
+            "city": addr.city,
+            "state": addr.district,
+            "postal_code": addr.postal_code,
+            "country": addr.country,
+        },
+    } #normalized serialization (dummy [lat, lng])

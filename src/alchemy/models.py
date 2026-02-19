@@ -56,8 +56,8 @@ class Film(Base):
     rental_rate = Column(Numeric(4,2), nullable=False) #default = 4.99, numeric > float to specify precision for modifications
     length = Column(Integer)
     replacement_cost = Column(Numeric(5,2), nullable=False) #default = 19.99
-    rating = Column(ENUM('G','PG','PG-13','R','NC-17'), name="film_rating_enum")
-    special_features = Column(SET('Trailers','Commentaries','Deleted Scenes','Behind the Scenes'), name="film_features_enum") #name= is used for SET and ENUM differently than normal
+    rating = Column('rating', ENUM('G','PG','PG-13','R','NC-17'))
+    special_features = Column('special_features', SET('Trailers','Commentaries','Deleted Scenes','Behind the Scenes'))
     
     last_update = Column(
         TIMESTAMP, 

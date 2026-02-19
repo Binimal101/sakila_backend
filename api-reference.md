@@ -13,10 +13,10 @@
 
     Returns:
         {
-            "1": <Rental>, 
-            "2": <Rental>, 
+            <Film>, 
+            <Film>, 
             ..., 
-            "5": <Rental>
+            <Film>
         }
 
     Status Codes:

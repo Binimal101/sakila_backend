@@ -1,13 +1,17 @@
 """SQLAlchemy abstractions"""
 
+import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
+from dotenv import load_dotenv
 
-DATABASE_URL = "mysql+pymysql://user:password@localhost/sakila"
+from src import DATABASE_URL
 
 engine = create_engine( #synchronous engine, lets not take into acct. race conditions :p
-    DATABASE_URL,
+    DATABASE_URL, # type: ignore
     poolclass=QueuePool,
     pool_size=5,
     pool_pre_ping=True,  # Verify connections before using them

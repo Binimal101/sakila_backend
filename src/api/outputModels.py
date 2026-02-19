@@ -1,6 +1,6 @@
 import src
 
-from pydantic import BaseModel, model_validator, computed_field, Field, constr
+from pydantic import BaseModel, model_validator, computed_field, constr
 from typing import Optional
 from typing import List, Optional, Any
 
@@ -18,10 +18,6 @@ class Rental(BaseModel):
     def is_active(self) -> bool:
         return self.return_date is None
 
-class top5RentalsOutput(BaseModel):
-    status: int
-    rentals: Optional[List[Rental]]
-
 class Actor(BaseModel):
     actor_id: int
     first_name: str
@@ -35,7 +31,6 @@ class Film(BaseModel):
     release_year: Optional[int] = None
     language: int
     original_language: Optional[int] = None
-    actors: List[Actor]
     category: str
     rental_duration: int
     rental_rate: float
@@ -45,9 +40,17 @@ class Film(BaseModel):
     special_features: Optional[str] = None
     last_update: str
 
+class FilmWithActors(BaseModel):
+    film: Film
+    actors: List[Actor]
+
+class top5RentalsOutput(BaseModel):
+    status: int
+    rentals: Optional[List[FilmWithActors]]
+
 class detailsFilmOutput(BaseModel):
     status: int
-    film: Optional[Film]
+    film: Optional[FilmWithActors]
 
 class top5ActorsOutput(BaseModel):
     status: int
@@ -59,7 +62,7 @@ class topNRentalsWithActorOutput(BaseModel):
 
 class queryFilmsOutput(BaseModel):
     status: int
-    films: Optional[List[Film]]
+    films: Optional[List[FilmWithActors]]
 
 class rentOutput(BaseModel):
     status: int
