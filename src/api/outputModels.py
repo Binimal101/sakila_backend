@@ -1,10 +1,21 @@
 import src
 
-from pydantic import BaseModel, model_validator, computed_field, constr
+from datetime import datetime
+from pydantic import BaseModel, model_validator, field_validator, computed_field, constr, ConfigDict
 from typing import Optional
-from typing import List, Optional, Any
+from typing import List, Optional
 
-class Rental(BaseModel):
+class BaseOutputModel(BaseModel):
+    """Shared base for output models that need date validation for last_update"""
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('last_update', mode='before', check_fields=False)
+    def _last_update_to_str(cls, v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
+
+class Rental(BaseOutputModel):
     rental_id: int
     rental_date: str
     inventory_id: int
@@ -13,25 +24,29 @@ class Rental(BaseModel):
     staff_id: int
     last_update: str
 
+    @field_validator('rental_date', 'return_date', mode='before', check_fields=False)
+    def _date_to_str(cls, v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
+
     #this adds a new attr, computed AFTER model validation
     @computed_field 
     def is_active(self) -> bool:
         return self.return_date is None
 
-class Actor(BaseModel):
+class Actor(BaseOutputModel):
     actor_id: int
     first_name: str
     last_name: str
     last_update: str
 
-class Film(BaseModel):
+class Film(BaseOutputModel):
     film_id: int
     title: str
     description: Optional[str] = None
     release_year: Optional[int] = None
-    language: int
     original_language: Optional[int] = None
-    category: str
     rental_duration: int
     rental_rate: float
     length: Optional[int] = None
@@ -40,17 +55,28 @@ class Film(BaseModel):
     special_features: Optional[str] = None
     last_update: str
 
-class FilmWithActors(BaseModel):
+    @field_validator("special_features", mode="before") # will inject retval into special_features field be4 validation
+    def special_features_str(cls, v):
+        if isinstance(v, (set, list, tuple)):
+            return ",".join(sorted(map(str, v)))
+        return v
+
+class FilmFull(BaseModel):
     film: Film
     actors: List[Actor]
+    category: str
+    language: str
+    
+    #begin query specific metadata, too lazy to stratify
+    rental_count: Optional[int]
 
 class top5RentalsOutput(BaseModel):
     status: int
-    rentals: Optional[List[FilmWithActors]]
+    rentals: Optional[List[FilmFull]]
 
 class detailsFilmOutput(BaseModel):
     status: int
-    film: Optional[FilmWithActors]
+    film: Optional[FilmFull]
 
 class top5ActorsOutput(BaseModel):
     status: int
@@ -62,31 +88,42 @@ class topNRentalsWithActorOutput(BaseModel):
 
 class queryFilmsOutput(BaseModel):
     status: int
-    films: Optional[List[FilmWithActors]]
+    films: Optional[List[FilmFull]]
 
 class rentOutput(BaseModel):
     status: int
     rental: Optional[Rental] #optionally can just return the ID, prolly better
 
-class Address(BaseModel):
-    address_line1: str
-    address_line2: Optional[str]
+class Address(BaseOutputModel):
+    address: str
+    address2: Optional[str]
     district: str # ~= state
-    city: str
-    country: str
+    city: Optional[str] = None
+    country: Optional[str] = None
     postal_code: Optional[str] = None
 
-class Customer(BaseModel):
+class Customer(BaseOutputModel):
     customer_id: int
     store_id: int
     first_name: str
     last_name: str
     email: Optional[str] = None
-    address: Address
-    location: Optional[dict] = None # {"latitude": float, "longitude": float} TODO check this
-    active: bool
+    active: Optional[bool] = True
     create_date: str
     last_update: str
+
+    @field_validator('create_date', mode='before', check_fields=False)
+    def create_date_str(cls, v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
+
+class CustomerFull(BaseModel):
+    customer: Customer
+    address: Address
+    location: Optional[dict] = None
+    rental_history: Optional[List[Rental]] = None
+    outgoing_rentals: Optional[List[Rental]] = None
 
 class queryCustomerOutput(BaseModel):
     status: int
@@ -105,9 +142,7 @@ class customerDeleteOutput(BaseModel):
 
 class detailsCustomerOutput(BaseModel):
     status: int
-    customer: Optional[Customer]
-    rental_history: Optional[List[Rental]]
-    outgoing_rentals: Optional[List[Rental]]
+    customer: Optional[CustomerFull]
 
 class returnOutput(BaseModel):
     status: int

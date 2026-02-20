@@ -111,7 +111,7 @@
 
     Params:
         1) filter_var:ENUM("first_name", "last_name", "customer_id") [OPTIONAL]
-        2) filter_text:first_name [OPTIONAL]
+        2) filter_value:filter_value (string for names, int for customer_id) [OPTIONAL]
         3) offset:offset (o) = 0 [OPTIONAL]
         4) top_n:top_n (n) = 20 [OPTIONAL]
 

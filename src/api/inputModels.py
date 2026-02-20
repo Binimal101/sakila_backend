@@ -1,7 +1,7 @@
 import src
 
-from pydantic import BaseModel, Field, constr # fields are for simple validation, constr for expressive validation
-from typing import Optional
+from pydantic import BaseModel, Field, constr, model_validator # fields are for simple validation, constr for expressive validation
+from typing import Optional, Union
 from enum import Enum
 
 class top5RentalsInput(BaseModel):
@@ -24,11 +24,17 @@ class filmsFilterEnum(str, Enum):
     ACTOR = "actor"
 
 class queryFilmsInput(BaseModel):
-    filter_var: Optional[filmsFilterEnum]
-    filter_content: str
+    filter_var: Optional[filmsFilterEnum] = None
+    filter_value: Optional[str] = None
     offset: int = Field(0, ge=0)
     top_n: int = Field(5, ge=1)
 
+    @model_validator(mode='after')
+    def check_filter_pair(self):
+        if bool(self.filter_var) != bool(self.filter_value):
+            raise ValueError("Both filter_var and filter_value must be provided together, or neither.")
+        return self
+    
 class rentInput(BaseModel):
     store_id: int
     film_id: int
@@ -41,10 +47,16 @@ class customerFilterEnum(str, Enum):
     CUSTOMER_ID = "customer_id"
 
 class queryCustomerInput(BaseModel):
-    filter_var: Optional[customerFilterEnum]
-    filter_text: Optional[str]
+    filter_var: Optional[customerFilterEnum] = None
+    filter_value: Optional[Union[str, int]] = None
     offset: int = Field(0, ge=0)
     top_n: int = Field(20, ge=1)
+
+    @model_validator(mode='after')
+    def check_filter_pair(self):
+        if bool(self.filter_var) != bool(self.filter_value):
+            raise ValueError("Both filter_var and filter_content must be provided together, or neither.")
+        return self
 
 StrictEmail = constr(
     pattern=r'^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*@[A-Za-z0-9]+(\.[A-Za-z0-9]+)+$',
