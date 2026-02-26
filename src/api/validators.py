@@ -4,14 +4,9 @@ from fastapi import Depends, HTTPException
 from .inputModels import customerCreateInput
 
 
-async def validate_address_dep(
-    payload: customerCreateInput = Depends(), #fastapi will inject http-body into pydantic model typed here
-) -> Dict[str, Any]:
-    """Validate `payload.address` locally and return a normalized dict.
-
-    This removes external reverse-geocoding. The function returns
-    deterministic dummy coordinates (0.0, 0.0) for all valid addresses.
-    """
+def normalize_address(payload: customerCreateInput) -> Dict[str, Any]:
+    """Normalize + validate the `payload.address` and return a deterministic
+    normalized dict (used by create/update customer endpoints)"""
     addr = payload.address
     line = getattr(addr, "address_line1", None)
     if not addr or not line or len(line.strip()) < 5:

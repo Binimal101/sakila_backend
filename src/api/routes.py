@@ -11,11 +11,13 @@ from src.alchemy.models import *
 from src.alchemy.db import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import select, insert, update, delete, func, and_, or_, literal_column
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from geoalchemy2 import WKTElement
 from fastapi import HTTPException
 
 # validators / pydantic models
-from src.api.validators import validate_address_dep
+from src.api.validators import normalize_address
 from src.api.inputModels import (
     top5RentalsInput,
     detailsFilmInput,
@@ -31,7 +33,10 @@ from src.api.inputModels import (
     detailsCustomerInput,
     returnInput,
 )
+
 import src.api.outputModels as output_models
+from src.api.mappers import _get_or_create_country, _get_or_create_city, _create_address
+
 
 @router.get("/api/health")
 def health_check() -> Any:
@@ -107,9 +112,11 @@ def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -
     #case insensitive partial searchjes
     if payload.filter_var == customerFilterEnum.FIRST_NAME and payload.filter_value:
         stmt = stmt.where(Customer.first_name.ilike(f"%{payload.filter_value}%"))
+    
     elif payload.filter_var == customerFilterEnum.LAST_NAME and payload.filter_value:
         stmt = stmt.where(Customer.last_name.ilike(f"%{payload.filter_value}%"))
-    elif payload.filter_var == customerFilterEnum.CUSTOMER_ID and payload.filter_value is not None:
+    
+    elif payload.filter_var == customerFilterEnum.CUSTOMER_ID and payload.filter_value:
         stmt = stmt.where(Customer.customer_id == payload.filter_value)
 
     stmt = stmt.offset(payload.offset).limit(payload.top_n)
@@ -124,12 +131,51 @@ def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -
     return output_models.queryCustomerOutput(status=200, customers=out_customers)
 
 @router.post("/api/customer/create", response_model=output_models.customerCreateOutput)
-def create_customer(payload: customerCreateInput, normalized: dict = Depends(validate_address_dep), db: Session = Depends(get_db)) -> output_models.customerCreateOutput:
-    """Create customer + address. Uses normalized address from `validate_address_dep` dependency."""
-    
-    insert(Customer).values(
-        **payload.model_dump()
-    )
+def create_customer(payload: customerCreateInput, db: Session = Depends(get_db)) -> output_models.customerCreateOutput:
+    """Create customer + address.
+
+    Reuses `normalize_address` helper from `validators` and get-or-create helpers.
+    """
+
+    normalized = normalize_address(payload)
+    components = normalized.get("components", {})
+    country_name = components.get("country") or payload.address.country
+    city_name = components.get("city") or payload.address.city
+    lat = normalized.get("latitude") or 0.0 #rn its already 0, but implement in case we wanna change it later
+    lon = normalized.get("longitude") or 0.0
+
+    try:
+        with db.begin():
+            country = _get_or_create_country(db, country_name)
+            city = _get_or_create_city(db, city_name, country.country_id) # type: ignore
+
+            addr = _create_address(db, payload.address.model_dump(), city.city_id, lat, lon) # type: ignore
+
+            cust_kwargs = {k: v for (k, v) in payload.model_dump().items() if hasattr(Customer, k)}
+            cust_kwargs.update(address_id=addr.address_id, create_date=datetime.utcnow(), active=1)
+
+            cust = Customer(**cust_kwargs)
+            db.add(cust)
+            db.flush()
+            db.refresh(cust)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    cust_pyd = output_models.Customer.model_validate(cust)
+    addr_pyd = output_models.Address.model_validate(addr)
+    addr_dict = addr_pyd.model_dump()
+    addr_dict.update({"city": city.city, "country": country.country})
+
+    cust_full_dict = {
+        "customer": cust_pyd.model_dump(),
+        "address": addr_dict,
+        "location": {"latitude": lat, "longitude": lon},
+        "rental_history": [],
+        "outgoing_rentals": [],
+    }
+
+    out_cust_full = output_models.CustomerFull.model_validate(cust_full_dict)
+    return output_models.customerCreateOutput(status=200, customer=out_cust_full)
 
 @router.post("/api/details/customer", response_model=output_models.detailsCustomerOutput)
 def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db)) -> output_models.detailsCustomerOutput:
@@ -181,8 +227,59 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
 
     return output_models.detailsCustomerOutput(status=200, customer=out_cust_full)
 
+@router.post("/api/rent", response_model=output_models.rentOutput)
+def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_models.rentOutput:
+    """Create a Rental record for a matching inventory item.
+
+    We assume at least one inventory row exists for the given store+film.
+    If none is found we return 404 to the caller.
+    """
+
+    # pull any inventory record for the film in the specified store
+    inv = db.execute(
+        select(Inventory).where(
+            Inventory.store_id == payload.store_id,
+            Inventory.film_id == payload.film_id,
+        )
+    ).scalar_one_or_none()
+
+
+    inv = output_models.Inventory.model_validate(inv)
+
+    today = datetime.now()
+
+    rent = Rental(
+        rental_date=today,
+        inventory_id=inv.inventory_id,
+        customer_id=payload.customer_id,
+        staff_id=payload.staff_id,
+    )
+    rent = output_models.Rental.model_validate(rent)
+
+    film = db.get(Film, payload.film_id)
+    film = output_models.Film.model_validate(film)
+
+    pmt = output_models.Payment.model_validate(Payment(
+        customer_id=payload.customer_id,
+        staff_id=payload.staff_id,
+        rental_id=rent.rental_id,
+        amount=film.rental_rate * film.rental_duration,
+        payment_date=today
+    ))
+
+    db.add(rent)
+    db.add(pmt)
+    db.commit()
+    db.refresh(rent)
+
+    return output_models.rentOutput(
+        status=200,
+        rental=rent,
+        payment=pmt
+    )
+
 @router.post("/api/return", response_model=output_models.returnOutput)
-def return_(payload: returnInput, db: Session = Depends(get_db)) -> output_models.returnOutput:
+def return_film(payload: returnInput, db: Session = Depends(get_db)) -> output_models.returnOutput:
     """Mark rental as returned (set return_date to now)."""
     pass
 

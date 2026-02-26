@@ -90,9 +90,31 @@ class queryFilmsOutput(BaseModel):
     status: int
     films: Optional[List[FilmFull]]
 
+class Inventory(BaseOutputModel):
+    inventory_id: int
+    film_id: int
+    store_id: int
+    last_update: str
+
+class Payment(BaseOutputModel):
+    payment_id: int
+    customer_id: int
+    staff_id: int
+    rental_id: int
+    amount: float
+    payment_date: str
+
+    @field_validator("payment_date", mode="before")
+    def pmt_date(cls, v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
+
+
 class rentOutput(BaseModel):
     status: int
-    rental: Optional[Rental] #optionally can just return the ID, prolly better
+    rental: Rental #optionally can just return the ID, prolly better
+    payment: Payment
 
 class Address(BaseOutputModel):
     address: str
@@ -131,11 +153,11 @@ class queryCustomerOutput(BaseModel):
 
 class customerCreateOutput(BaseModel):
     status: int
-    customer: Optional[Customer]
+    customer: Optional[CustomerFull]
 
 class customerEditOutput(BaseModel):
     status: int
-    customer: Optional[Customer]
+    customer: Optional[CustomerFull]
 
 class customerDeleteOutput(BaseModel):
     status: int
