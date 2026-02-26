@@ -36,8 +36,7 @@ class queryFilmsInput(BaseModel):
         return self
     
 class rentInput(BaseModel):
-    store_id: int
-    film_id: int
+    inventory_id: int
     customer_id: int
     staff_id: int
 

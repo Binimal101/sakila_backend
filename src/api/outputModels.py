@@ -113,8 +113,8 @@ class Payment(BaseOutputModel):
 
 class rentOutput(BaseModel):
     status: int
-    rental: Rental #optionally can just return the ID, prolly better
-    payment: Payment
+    rental: Optional[Rental] = None 
+    payment: Optional[Payment] = None
 
 class Address(BaseOutputModel):
     address: str

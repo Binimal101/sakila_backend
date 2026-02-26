@@ -230,52 +230,59 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
 @router.post("/api/rent", response_model=output_models.rentOutput)
 def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_models.rentOutput:
     """Create a Rental record for a matching inventory item.
+        throws err if rental is already taken out
 
-    We assume at least one inventory row exists for the given store+film.
-    If none is found we return 404 to the caller.
     """
 
-    # pull any inventory record for the film in the specified store
-    inv = db.execute(
-        select(Inventory).where(
-            Inventory.store_id == payload.store_id,
-            Inventory.film_id == payload.film_id,
+    # validate inventory row with pydantic
+    inv = output_models.Inventory.model_validate(
+        db.get(Inventory, payload.inventory_id)
+    )
+
+    outgoing_record = db.execute(
+        select(Rental)
+        .where(
+            Rental.inventory_id == inv.inventory_id,
+            Rental.return_date == None,
         )
+        .limit(1)
     ).scalar_one_or_none()
 
+    if outgoing_record:
+        return output_models.rentOutput(status=409, rental=None, payment=None)
 
-    inv = output_models.Inventory.model_validate(inv)
+    film = output_models.Film.model_validate(db.get(Film, inv.film_id))
 
     today = datetime.now()
 
-    rent = Rental(
+    # create rental record
+    db.add(rent := Rental(
         rental_date=today,
         inventory_id=inv.inventory_id,
         customer_id=payload.customer_id,
         staff_id=payload.staff_id,
-    )
+    ))
+    db.commit()
+    db.refresh(rent) #puts in the ID param
     rent = output_models.Rental.model_validate(rent)
 
-    film = db.get(Film, payload.film_id)
-    film = output_models.Film.model_validate(film)
-
-    pmt = output_models.Payment.model_validate(Payment(
+    #creates the ORM object, puts it in the database (after commit), refreshes obj to have id param for validation
+    db.add(pmt := Payment(
         customer_id=payload.customer_id,
         staff_id=payload.staff_id,
         rental_id=rent.rental_id,
         amount=film.rental_rate * film.rental_duration,
         payment_date=today
     ))
-
-    db.add(rent)
     db.add(pmt)
     db.commit()
-    db.refresh(rent)
+    db.refresh(pmt)
+    pmt = output_models.Payment.model_validate(pmt)
 
     return output_models.rentOutput(
         status=200,
         rental=rent,
-        payment=pmt
+        payment=pmt,
     )
 
 @router.post("/api/return", response_model=output_models.returnOutput)
