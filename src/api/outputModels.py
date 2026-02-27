@@ -46,6 +46,7 @@ class Film(BaseOutputModel):
     title: str
     description: Optional[str] = None
     release_year: Optional[int] = None
+    language_id: int
     original_language: Optional[int] = None
     rental_duration: int
     rental_rate: float
@@ -68,7 +69,7 @@ class FilmFull(BaseModel):
     language: str
     
     #begin query specific metadata, too lazy to stratify
-    rental_count: Optional[int]
+    rental_count: Optional[int] = None
 
 class top5RentalsOutput(BaseModel):
     status: int
@@ -76,7 +77,8 @@ class top5RentalsOutput(BaseModel):
 
 class detailsFilmOutput(BaseModel):
     status: int
-    film: Optional[FilmFull]
+    film: Optional[FilmFull] = None
+    message: Optional[str] = None
 
 class top5ActorsOutput(BaseModel):
     status: int

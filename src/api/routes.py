@@ -96,7 +96,35 @@ def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> outp
 @router.post("/api/details/film", response_model=output_models.detailsFilmOutput)
 def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> output_models.detailsFilmOutput:
     """Return full film details including actors and category."""
-    pass
+    with db.begin():
+        filmcat = db.execute(
+            select(Film, Category).where(Film.film_id == payload.film_id)
+            .join(FilmCategory, Film.film_id == FilmCategory.film_id)
+            .join(Category, Category.category_id == FilmCategory.category_id)
+        ).mappings().first() #assumes that each film is 1-1 with its own category (all sakila is generated like this, but we have a joint table so in practice not always correct)
+
+    if filmcat is None:
+        return output_models.detailsFilmOutput(status=500, message="improper assumptions when processing film and it's categories")    
+    
+    film = output_models.Film.model_validate(filmcat["Film"])
+    cat = filmcat["Category"].name
+    language = db.get(Language, film.language_id).name
+
+
+    actors_orm = db.execute(
+        select(Actor)
+        .join(FilmActor, FilmActor.actor_id == Actor.actor_id)
+        .where(FilmActor.film_id == film.film_id)
+    ).scalars().all()
+
+    actors = [output_models.Actor.model_validate(a) for a in actors_orm]
+
+    return output_models.detailsFilmOutput(film=output_models.FilmFull(
+        film=film,
+        actors=actors,
+        category=cat,
+        language=language,
+    ), status=200)
 
 @router.post("/api/query/films", response_model=output_models.queryFilmsOutput)
 def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> output_models.queryFilmsOutput:
