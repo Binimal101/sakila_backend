@@ -207,7 +207,18 @@ def customer_edit(payload: customerEditInput, db: Session = Depends(get_db)) -> 
     db.refresh(customer_record)
     return output_models.customerEditOutput(status=200, customer=customer_record) # type: ignore
     
-@router.post("/api/customer/delete")
+@router.post("/api/customer/delete", response_model=output_models.customerDeleteOutput)
+def customer_delete(payload: customerDeleteInput, db: Session = Depends(get_db)) -> output_models.customerDeleteOutput:
+    """Deletes customer if exists"""
+    customer = db.get(Customer, payload.customer_id)
+    if customer is None:
+        return output_models.customerDeleteOutput(status=404)
+
+    db.delete(customer)
+    db.flush()
+    db.commit()
+
+    return output_models.customerDeleteOutput(status=200)
 
 @router.post("/api/details/customer", response_model=output_models.detailsCustomerOutput)
 def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db)) -> output_models.detailsCustomerOutput:

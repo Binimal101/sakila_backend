@@ -92,11 +92,9 @@ class customerEditInput(BaseModel):
 
 class customerDeleteInput(BaseModel):
     customer_id: int
-    store_id: int
 
 class detailsCustomerInput(BaseModel):
     customer_id: int
-    store_id: int
 
 class returnInput(BaseModel):
     rental_id: int
