@@ -105,7 +105,18 @@ def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> outp
 
 @router.post("/api/query/customer", response_model=output_models.queryCustomerOutput)
 def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -> output_models.queryCustomerOutput:
-    """Query customers by first_name, last_name, or customer_id"""
+    """Perform a paged search of customers.
+
+    The body must specify a filter type (first name, last name, or ID) and a
+    corresponding value.  Results are returned in `customers` along with a
+    200 status.  If no rows match the criteria you still get 200 but the
+    `message` field will note "no customers found"; invalid filters won't be
+    accepted by the input model.
+
+    This endpoint is intended for UI list views and autosuggest widgets. It
+    never throws HTTP errors except for malformed requests; front ends can
+    display `message` to inform users when a lookup yields nothing.
+    """
     stmt = select(Customer)
 
     #case insensitive partial searchjes
@@ -120,10 +131,9 @@ def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -
 
     stmt = stmt.offset(payload.offset).limit(payload.top_n)
 
-    rows = db.execute(stmt).scalars().all()  
+    rows = db.execute(stmt).scalars().all()
 
     out_customers: List[output_models.Customer] = []
-
     for cust in rows:
         out_customers.append(output_models.Customer.model_validate(cust))
 
@@ -131,7 +141,17 @@ def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -
 
 @router.post("/api/customer/create", response_model=output_models.customerCreateOutput)
 def create_customer(payload: customerCreateInput, db: Session = Depends(get_db)) -> output_models.customerCreateOutput:
-    """Create customer + address"""
+    """Create a new customer along with its address details.
+
+    The payload must include full address information and a valid phone number
+    (used for de‑duplication).  On success the newly created customer (plus
+    address/city/country) is returned in `customer`.  If the customer already
+    exists or the database rejects the insert the response will still be 200
+    but `message` will contain the error text, making it easy for a front end to
+    pop up a human‑readable warning.  This endpoint is designed to be called
+    from a registration or admin form; it does not itself perform any
+    authentication or authorization.
+    """
 
     lat, lon = 0, 0
 
@@ -152,9 +172,9 @@ def create_customer(payload: customerCreateInput, db: Session = Depends(get_db))
             db.add(cust)
             db.flush()
             db.refresh(cust)
-            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # return error in message field so front end can display it
+        return output_models.customerCreateOutput(status=500, customer=None, message=str(e))
 
     cust_pyd = output_models.Customer.model_validate(cust)
     addr_pyd = output_models.Address.model_validate(address)
@@ -177,12 +197,20 @@ def create_customer(payload: customerCreateInput, db: Session = Depends(get_db))
 
 @router.post("/api/customer/edit", response_model=output_models.customerEditOutput)
 def customer_edit(payload: customerEditInput, db: Session = Depends(get_db)) -> output_models.customerEditOutput:
-    """edits a customer"""
+    """Modify an existing customer's fields.
+
+    Only the fields present in the payload will be updated; omitted fields
+    remain unchanged.  If the caller supplies a new address + phone number (both need to be provided) the
+    address table is upserted automatically.  The response provides the
+    updated customer object on success.  If the requested `customer_id` does
+    not exist a 404 status with a descriptive `message` is returned.
+    """
 
     customer_record = db.get(Customer, payload.customer_id)
 
     if customer_record is None:
-        return output_models.customerEditOutput(status=404, customer=None) #trying to update when no customer exists
+        return output_models.customerEditOutput(status=404, customer=None,
+            message=f"no customer found with id {payload.customer_id}")
 
     address = None
     if None not in (payload.address, payload.phone_number):
@@ -209,10 +237,17 @@ def customer_edit(payload: customerEditInput, db: Session = Depends(get_db)) -> 
     
 @router.post("/api/customer/delete", response_model=output_models.customerDeleteOutput)
 def customer_delete(payload: customerDeleteInput, db: Session = Depends(get_db)) -> output_models.customerDeleteOutput:
-    """Deletes customer if exists"""
+    """Remove a customer by ID.
+
+    Returns 200 and a confirmation message when deletion succeeds. If the
+    provided `customer_id` does not exist the response will have a 404 status
+    and `message` explaining that no such row was found.  Consumers can use
+    this endpoint for clean‑up tasks or admin UIs.
+    """
     customer = db.get(Customer, payload.customer_id)
     if customer is None:
-        return output_models.customerDeleteOutput(status=404)
+        return output_models.customerDeleteOutput(status=404,
+            message=f"cannot delete; customer {payload.customer_id} not found")
 
     db.delete(customer)
     db.flush()
@@ -222,7 +257,14 @@ def customer_delete(payload: customerDeleteInput, db: Session = Depends(get_db))
 
 @router.post("/api/details/customer", response_model=output_models.detailsCustomerOutput)
 def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db)) -> output_models.detailsCustomerOutput:
-    """Return customer info, rental history and outgoing rentals"""
+    """Fetch one customer's full profile.
+
+    The response includes the base customer row, their address/city/country
+    hierarchy and lists of past and currently active rentals.  Useful for
+    displaying a detailed view or for building reports. If the supplied ID is
+    missing from the database a 404 response with an explanatory message is
+    returned instead of a bare `null`.
+    """
     
     stmt = (
         select(Customer, Address, City, Country)
@@ -234,7 +276,8 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
     
     row = db.execute(stmt).mappings().first()
     if not row:
-        return output_models.detailsCustomerOutput(status=404, customer=None)
+        return output_models.detailsCustomerOutput(status=404, customer=None,
+            message=f"customer {payload.customer_id} does not exist")
 
     addr = row["Address"]
     city = row["City"]

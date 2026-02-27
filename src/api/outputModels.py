@@ -163,21 +163,26 @@ class CustomerFull(BaseModel):
 class queryCustomerOutput(BaseModel):
     status: int
     customers: Optional[List[Customer]]
+    message: Optional[str] = None  # human-readable info or error details
 
 class customerCreateOutput(BaseModel):
     status: int
     customer: Optional[CustomerFull]
+    message: Optional[str] = None  # informative text for front-end display
 
 class customerEditOutput(BaseModel):
     status: int
     customer: Optional[Customer]
+    message: Optional[str] = None
 
 class customerDeleteOutput(BaseModel):
     status: int
+    message: Optional[str] = None
 
 class detailsCustomerOutput(BaseModel):
     status: int
     customer: Optional[CustomerFull]
+    message: Optional[str] = None
 
 class returnOutput(BaseModel):
     status: int
