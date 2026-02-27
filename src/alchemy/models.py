@@ -236,7 +236,7 @@ class Customer(Base):
     store_id = Column(TINYINT(unsigned=True), ForeignKey("store.store_id"), nullable=False)
     first_name = Column(String(45), nullable=False)
     last_name = Column(String(45), nullable=False)
-    email = Column(String(50))
+    email = Column(String(50), nullable=True)
     address_id = Column(SMALLINT(unsigned=True), ForeignKey("address.address_id"), nullable=False)
     active = Column(TINYINT(1), nullable=False, server_default=text("1"))
     create_date = Column(DateTime, nullable=False)

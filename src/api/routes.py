@@ -16,8 +16,7 @@ from datetime import datetime
 from geoalchemy2 import WKTElement
 from fastapi import HTTPException
 
-# validators / pydantic models
-from src.api.validators import normalize_address
+#pydantic models
 from src.api.inputModels import (
     top5RentalsInput,
     detailsFilmInput,
@@ -35,7 +34,7 @@ from src.api.inputModels import (
 )
 
 import src.api.outputModels as output_models
-from src.api.mappers import _get_or_create_country, _get_or_create_city, _create_address
+from src.api.mappers import upsert_full_address, AddressFullResult
 
 
 @router.get("/api/health")
@@ -132,58 +131,90 @@ def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -
 
 @router.post("/api/customer/create", response_model=output_models.customerCreateOutput)
 def create_customer(payload: customerCreateInput, db: Session = Depends(get_db)) -> output_models.customerCreateOutput:
-    """Create customer + address.
+    """Create customer + address"""
 
-    Reuses `normalize_address` helper from `validators` and get-or-create helpers.
-    """
-
-    normalized = normalize_address(payload)
-    components = normalized.get("components", {})
-    country_name = components.get("country") or payload.address.country
-    city_name = components.get("city") or payload.address.city
-    lat = normalized.get("latitude") or 0.0 #rn its already 0, but implement in case we wanna change it later
-    lon = normalized.get("longitude") or 0.0
+    lat, lon = 0, 0
 
     try:
         with db.begin():
-            country = _get_or_create_country(db, country_name)
-            city = _get_or_create_city(db, city_name, country.country_id) # type: ignore
+            result = upsert_full_address(db, payload.address, payload.phone_number)
+            city = result.city
+            country = result.country
+            address = result.address
 
-            addr = _create_address(db, payload.address.model_dump(), city.city_id, lat, lon) # type: ignore
-
-            cust_kwargs = {k: v for (k, v) in payload.model_dump().items() if hasattr(Customer, k)}
-            cust_kwargs.update(address_id=addr.address_id, create_date=datetime.utcnow(), active=1)
-
-            cust = Customer(**cust_kwargs)
+            cust = Customer(
+                store_id=payload.store_id,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+                email=payload.email,
+                address_id=address.address_id,
+            )
             db.add(cust)
             db.flush()
             db.refresh(cust)
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     cust_pyd = output_models.Customer.model_validate(cust)
-    addr_pyd = output_models.Address.model_validate(addr)
-    addr_dict = addr_pyd.model_dump()
-    addr_dict.update({"city": city.city, "country": country.country})
+    addr_pyd = output_models.Address.model_validate(address)
 
-    cust_full_dict = {
-        "customer": cust_pyd.model_dump(),
-        "address": addr_dict,
-        "location": {"latitude": lat, "longitude": lon},
-        "rental_history": [],
-        "outgoing_rentals": [],
-    }
+    # build pydantic objects for city/country as well so CustomerFull is happy
+    city_pyd = output_models.City.model_validate(city)
+    country_pyd = output_models.Country.model_validate(country)
 
-    out_cust_full = output_models.CustomerFull.model_validate(cust_full_dict)
-    return output_models.customerCreateOutput(status=200, customer=out_cust_full)
+    cust_full = output_models.CustomerFull(
+        customer=cust_pyd,
+        address=addr_pyd,
+        city=city_pyd,
+        country=country_pyd,
+        location={"latitude": lat, "longitude": lon},
+        rental_history=[],
+        outgoing_rentals=[],
+    )
+
+    return output_models.customerCreateOutput(status=200, customer=cust_full)
+
+@router.post("/api/customer/edit", response_model=output_models.customerEditOutput)
+def customer_edit(payload: customerEditInput, db: Session = Depends(get_db)) -> output_models.customerEditOutput:
+    """edits a customer"""
+
+    customer_record = db.get(Customer, payload.customer_id)
+
+    if customer_record is None:
+        return output_models.customerEditOutput(status=404, customer=None) #trying to update when no customer exists
+
+    address = None
+    if None not in (payload.address, payload.phone_number):
+        result = upsert_full_address(db, payload.address, payload.phone_number) # type: ignore
+        city = result.city
+        country = result.country
+        address = result.address
+    
+    db.execute(
+        update(Customer).where(Customer.customer_id == customer_record.customer_id)
+        .values( #overwrite if provided, otherwise default
+                store_id=payload.store_id or customer_record.store_id,
+                first_name=payload.first_name or customer_record.first_name,
+                last_name=payload.last_name or customer_record.last_name,
+                email=payload.email or customer_record.email,
+                address_id=(address.address_id if address else None) or customer_record.address_id, # type: ignore
+        )
+    )
+
+    db.commit()
+    db.flush()
+    db.refresh(customer_record)
+    return output_models.customerEditOutput(status=200, customer=customer_record) # type: ignore
+    
+@router.post("/api/customer/delete")
 
 @router.post("/api/details/customer", response_model=output_models.detailsCustomerOutput)
 def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db)) -> output_models.detailsCustomerOutput:
     """Return customer info, rental history and outgoing rentals"""
     
     stmt = (
-        #labels for city and country to map over to nomenclature of pyd
-        select(Customer, Address, City.city.label("city_name"), Country.country.label("country_name"))
+        select(Customer, Address, City, Country)
         .join(Address, Address.address_id == Customer.address_id)
         .join(City, City.city_id == Address.city_id)
         .join(Country, Country.country_id == City.country_id)
@@ -194,17 +225,15 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
     if not row:
         return output_models.detailsCustomerOutput(status=404, customer=None)
 
-    cust = row["Customer"]
     addr = row["Address"]
+    city = row["City"]
+    country = row["Country"]
+    cust = row["Customer"]
 
     addr_pyd = output_models.Address.model_validate(addr)
+    city_pyd = output_models.City.model_validate(city)
+    countyr_pyd = output_models.Country.model_validate(country)
     cust_pyd = output_models.Customer.model_validate(cust)
-
-    addr_dict = addr_pyd.model_dump()
-    addr_dict.update({
-        "city": row["city_name"],
-        "country": row["country_name"]
-    })
 
     rentals_stmt = select(Rental).where(Rental.customer_id == cust.customer_id).order_by(Rental.rental_date.desc())
     rental_rows = db.execute(rentals_stmt).scalars().all()
@@ -212,21 +241,21 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
     rentals_pyd = [output_models.Rental.model_validate(r) for r in rental_rows]
     
     #in-memory stratification for ease of use on cli-side
-    rental_history = [r.model_dump() for r in rentals_pyd if r.return_date is not None]
-    outgoing_rentals = [r.model_dump() for r in rentals_pyd if r.return_date is None]
+    rental_history = [r for r in rentals_pyd if r.return_date is not None]
+    outgoing_rentals = [r for r in rentals_pyd if r.return_date is None]
 
-    cust_full_dict = {
-        "customer": cust_pyd.model_dump(),
-        "address": addr_dict,
-        "location": None,
-        "rental_history": rental_history,
-        "outgoing_rentals": outgoing_rentals
-    }
-
-    out_cust_full = output_models.CustomerFull.model_validate(cust_full_dict)
-
-    return output_models.detailsCustomerOutput(status=200, customer=out_cust_full)
-
+    return output_models.detailsCustomerOutput(
+        customer=output_models.CustomerFull(
+            customer=cust_pyd,
+            address=addr_pyd,
+            city=city_pyd,
+            country=countyr_pyd,
+            rental_history=rental_history,
+            outgoing_rentals=outgoing_rentals
+        ),
+        status=200
+    )
+    
 @router.post("/api/rent", response_model=output_models.rentOutput)
 def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_models.rentOutput:
     """Create a Rental record for a matching inventory item.

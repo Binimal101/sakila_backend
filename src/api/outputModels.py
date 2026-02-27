@@ -117,12 +117,23 @@ class rentOutput(BaseModel):
     payment: Optional[Payment] = None
 
 class Address(BaseOutputModel):
+    address_id: Optional[int] = None #used in case from converting directly from ORM, will be None elsewhere BAD PRACTICE
     address: str
     address2: Optional[str]
     district: str # ~= state
-    city: Optional[str] = None
-    country: Optional[str] = None
-    postal_code: Optional[str] = None
+    city_id: int
+    postal_code: str
+    phone: str
+    last_update: datetime
+
+class City(BaseOutputModel):
+    city: str
+    country_id: int
+    last_update: datetime
+
+class Country(BaseOutputModel):
+    country: str
+    last_update: datetime
 
 class Customer(BaseOutputModel):
     customer_id: int
@@ -143,6 +154,8 @@ class Customer(BaseOutputModel):
 class CustomerFull(BaseModel):
     customer: Customer
     address: Address
+    city: City
+    country: Country
     location: Optional[dict] = None
     rental_history: Optional[List[Rental]] = None
     outgoing_rentals: Optional[List[Rental]] = None
@@ -157,7 +170,7 @@ class customerCreateOutput(BaseModel):
 
 class customerEditOutput(BaseModel):
     status: int
-    customer: Optional[CustomerFull]
+    customer: Optional[Customer]
 
 class customerDeleteOutput(BaseModel):
     status: int

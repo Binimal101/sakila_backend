@@ -1,70 +1,74 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
+
+from pydantic import BaseModel
 from geoalchemy2 import WKTElement
-from typing import Dict, Any
-
 from src.alchemy.models import Country, City, Address
+import src.api.inputModels as inmod
+import src.api.outputModels as opmod
 
 
-def _get_or_create_country(db: Session, country_name: str) -> Country:
-    """Return existing Country or insert + return a new one (race-safe).
+class AddressFullResult(BaseModel):
+    country: opmod.Country
+    city: opmod.City
+    address: opmod.Address
 
-    Uses a flush + IntegrityError retry to handle simple concurrent inserts.
-    """
-    country_name = country_name.lower()
+def upsert_full_address(db: Session, addr: inmod.Address, phone: inmod.StrictPhoneNumber) -> AddressFullResult: # type: ignore
+    """will try to update columns in Address, City, and Country if they exist, otherwise creates them."""
 
-    country = db.execute(select(Country).where(
-        func.lower(Country.country.ilike(country_name)) #don't wanna do data migration, just ignore non-uniform case in db
-    )).scalar_one_or_none() #limit 1
+    country_name = addr.country.lower().title()
+    city_name = addr.city.lower().title()
+    line1 = addr.address_line1.lower().title()
+    line2 = addr.address_line2.lower().title() if addr.address_line2 else None
+    district = addr.district.lower().title()
 
-    if country:
-        return country
-    country = Country(country=country_name)
-    db.add(country)
-    try:
+    if (country := db.execute(
+            select(Country).where(Country.country == country_name)
+        ).scalars().first()) is None:
+        country = Country(country=country_name)
+        db.add(country)
+        db.flush() # populate id
+
+    if (city := db.execute(
+            select(City).where(City.city == addr.city.lower().title())
+        ).scalars().first()) is None:
+        city = City(
+            city=city_name,
+            country_id=country.country_id
+        )
+        db.add(city)
         db.flush()
-    except IntegrityError:
-        db.rollback()
-        country = db.execute(select(Country).where(Country.country.ilike(country_name))).scalar_one()
-    else:
-        db.refresh(country)
-    return country
 
+    address = db.execute(
+        select(Address).where(
+            Address.address == line1,
+            Address.address2 == line2,
+            Address.district == district,
+            Address.city_id == city.city_id,
+            Address.postal_code == addr.postal_code,
+            Address.phone == phone,
+        )
+    ).scalars().first()
 
-def _get_or_create_city(db: Session, city_name: str, country_id: int) -> City:
-    """Return existing City or insert + return a new one (race-safe).
-
-    City uniqueness is considered for (city, country_id).
-    """
-    city = db.execute(select(City).where(City.city.ilike(city_name), City.country_id == country_id)).scalar_one_or_none()
-    if city:
-        return city
-    city = City(city=city_name, country_id=country_id)
-    db.add(city)
-    try:
+    if address is None:
+        address = Address(
+            address=line1,
+            address2=line2,
+            district=district,
+            city_id=city.city_id,
+            postal_code=addr.postal_code,
+            phone=phone,
+            location=WKTElement("POINT(0 0)") #hardcode bc geocoding with bad seeded db values is bad >:()
+        )
+        db.add(address)
         db.flush()
-    except IntegrityError:
-        db.rollback()
-        city = db.execute(select(City).where(City.city.ilike(city_name), City.country_id == country_id)).scalar_one()
-    else:
-        db.refresh(city)
-    return city
+        
+    [db.refresh(model) for model in (country, city, address)]
 
-
-def _create_address(db: Session, addr_payload: Dict[str, Any], city_id: int, lat: float, lon: float) -> Address:
-    """Create an Address row with a spatial `location` from lat/lon and return it."""
-    loc = WKTElement(f"POINT({lon} {lat})") #each customer (as pertaining to DB schema) has not NULL GEOMETRY datatype in addr
-    addr = Address(
-        address=addr_payload.get("address_line1") or addr_payload.get("address") or "",
-        address2=addr_payload.get("address_line2") or addr_payload.get("address2"),
-        district=addr_payload.get("district") or "",
-        city_id=city_id,
-        postal_code=addr_payload.get("postal_code"),
-        phone=addr_payload.get("phone") or "",
-        location=loc,
+    return AddressFullResult(
+        country=opmod.Country.model_validate(country),
+        city=opmod.City.model_validate(city),
+        address=opmod.Address.model_validate(address)
     )
-    db.add(addr)
-    db.flush()
-    db.refresh(addr)
-    return addr
+
+    
