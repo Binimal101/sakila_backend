@@ -115,6 +115,7 @@ class rentOutput(BaseModel):
     status: int
     rental: Optional[Rental] = None 
     payment: Optional[Payment] = None
+    message: Optional[str] = None
 
 class Address(BaseOutputModel):
     address_id: Optional[int] = None #used in case from converting directly from ORM, will be None elsewhere BAD PRACTICE
@@ -186,3 +187,4 @@ class detailsCustomerOutput(BaseModel):
 
 class returnOutput(BaseModel):
     status: int
+    message: Optional[str] = None

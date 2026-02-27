@@ -313,9 +313,7 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
 @router.post("/api/rent", response_model=output_models.rentOutput)
 def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_models.rentOutput:
     """Create a Rental record for a matching inventory item.
-        throws err if rental is already taken out
-
-    """
+        throws err if rental is already taken out"""
 
     # validate inventory row with pydantic
     inv = output_models.Inventory.model_validate(
@@ -332,7 +330,7 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
     ).scalar_one_or_none()
 
     if outgoing_record:
-        return output_models.rentOutput(status=409, rental=None, payment=None)
+        return output_models.rentOutput(status=404, rental=None, payment=None, message="someone currently has this rented out, please try another item!")
 
     film = output_models.Film.model_validate(db.get(Film, inv.film_id))
 
@@ -371,6 +369,21 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
 @router.post("/api/return", response_model=output_models.returnOutput)
 def return_film(payload: returnInput, db: Session = Depends(get_db)) -> output_models.returnOutput:
     """Mark rental as returned (set return_date to now)."""
-    pass
+    
+    if (
+        db.get(Rental, Rental.rental_id == payload.rental_id)
+    ) is None:
+        return output_models.returnOutput(status=404, message="rental instance doesn't exist")
+    
+    with db.begin():
+        db.execute(
+            update(Rental).where(Rental.rental_id == payload.rental_id)
+            .values(return_date = datetime.now())
+        )
+
+    db.flush()
+
+    return output_models.returnOutput(status=200)
+
 
 app.include_router(router)
