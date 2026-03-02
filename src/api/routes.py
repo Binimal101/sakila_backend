@@ -25,6 +25,7 @@ from src.api.inputModels import (
     queryFilmsInput,
     rentInput,
     customerFilterEnum,
+    filmFilterEnum,
     queryCustomerInput,
     customerCreateInput,
     customerEditInput,
@@ -42,6 +43,26 @@ def health_check() -> Any:
     return {"status": "ok"}
 
 #ENDPOINTS
+
+@router.post("/api/top_5_actors", response_model=output_models.top5ActorsOutput)
+def t5_actors(payload: top5ActorsInput, db: Session = Depends(get_db)) -> output_models.top5ActorsOutput:
+    actor_count = func.count
+    
+    #get rows with all films
+    films = db.execute(select(Inventory).where(Inventory.store_id == payload.store_id)).scalars().all()
+
+    t5actors = db.execute(
+        select(FilmActor, actor_count().label("actor_count"))
+        .where(FilmActor.film_id.in_( # cool list comprehension to only select these actors
+            [x.film_id for x in films]
+        ))
+        .join(Actor, FilmActor.actor_id == Actor.actor_id)
+        .group_by(Actor.actor_id)
+        .order_by(actor_count(Actor.actor_id)) #TODO test this is in correct order
+        .limit(5)
+    ).mappings().all()
+
+    return [output_models.Actor.model_validate(Actor(db.get(Actor, x["Actor"].actor_id))) for x in t5actors]
 
 @router.post("/api/top_5_rentals", response_model=output_models.top5RentalsOutput)
 def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> output_models.top5RentalsOutput:
@@ -92,7 +113,6 @@ def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> outp
 
     return output_models.top5RentalsOutput(rentals=pyd_films_with_actors, status=200)
 
-
 @router.post("/api/details/film", response_model=output_models.detailsFilmOutput)
 def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> output_models.detailsFilmOutput:
     """Return full film details including actors and category."""
@@ -128,8 +148,52 @@ def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> ou
 
 @router.post("/api/query/films", response_model=output_models.queryFilmsOutput)
 def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> output_models.queryFilmsOutput:
-    """Search films by name, genre, or actor. Returns `Film` objects."""
-    pass
+    """Search films by name, genre, or actor. Returns `FilmFull` objects."""
+    stmt = select(Film)
+
+    #case insensitive partial searchjes
+    if payload.filter_var == filmFilterEnum.NAME and payload.filter_value:
+        stmt = stmt.where(Film.title.ilike(f"%{payload.filter_value}%"))
+    
+    elif payload.filter_var == filmFilterEnum.GENRE and payload.filter_value: #TODO need to make from scratch
+        stmt = stmt.where(Category.name.ilike(f"%{payload.filter_value}%"))
+    
+    elif payload.filter_var == filmFilterEnum.ACTOR and payload.filter_value:
+        stmt = stmt.where(or_(
+            Actor.first_name.ilike(payload.filter_value), 
+            Actor.last_name.ilike(payload.filter_value)
+        ))
+    
+    stmt = (stmt
+        .join(FilmCategory, FilmCategory.film_id == Film.film_id)
+        .join(Category, Category.category_id == FilmCategory.category_id)
+        .join(FilmActor, FilmActor.film_id == Film.film_id)
+        .join(Actor, Actor.actor_id == FilmActor.actor_id)
+    )
+
+    stmt = stmt.offset(payload.offset).limit(payload.top_n)
+
+    orm_films = db.execute(stmt).scalars().all()
+
+    from pprint import pprint
+    pprint(orm_films)
+
+    #take filtered results and make them fit output model
+    if orm_films is None:
+        return output_models.queryFilmsOutput(status=404, films=[], message="No films found with following filter params")
+
+    out_films: List[output_models.FilmFull] = []
+
+    #too lazy to manually map, reuse old code (BAD BAD BAD)
+    for film in orm_films: #reuse film_details endpoint to map opm.Film -> FilmFull, pass existing ORM instances in
+        
+        ret = film_details(payload=detailsFilmInput(film_id=film.film_id), db=next(get_db())) # type: ignore
+        if ret.status != 200:
+            return output_models.queryFilmsOutput(status=ret.status, message=f"error calling film/details from film/query with fid={film.film_id}: {ret.message}")
+        
+        out_films.append(output_models.FilmFull.model_validate(ret.film)) #filmfull
+
+    return output_models.queryFilmsOutput(status=200, films=out_films)
 
 @router.post("/api/query/customer", response_model=output_models.queryCustomerOutput)
 def query_customer(payload: queryCustomerInput, db: Session = Depends(get_db)) -> output_models.queryCustomerOutput:

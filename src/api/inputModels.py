@@ -18,13 +18,13 @@ class topNRentalsWithActorInput(BaseModel):
     offset: int = Field(0, ge=0)
     top_n: int = Field(50, ge=1)
 
-class filmsFilterEnum(str, Enum):
+class filmFilterEnum(str, Enum):
     NAME = "name"
     GENRE = "genre"
     ACTOR = "actor"
 
 class queryFilmsInput(BaseModel):
-    filter_var: Optional[filmsFilterEnum] = None
+    filter_var: Optional[filmFilterEnum] = None
     filter_value: Optional[str] = None
     offset: int = Field(0, ge=0)
     top_n: int = Field(5, ge=1)

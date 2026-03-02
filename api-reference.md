@@ -6,7 +6,7 @@
 ***GET /api/health***
 
 
-***POST api/top_5_rentals ***
+***POST api/top_5_rentals: done ***
 
     Params:
         1) store_id:store_id
@@ -22,7 +22,7 @@
     Status Codes:
         1) -1: store does not exist
 
-***POST /api/details/film***
+***POST /api/details/film: done***
 
     Params:
         1) film_id:film_id
@@ -73,7 +73,7 @@
     Status Codes:
         1) -1: Actor does not exist
 
-***POST /api/query/films***
+***POST /api/query/films: done***
 
     Params:
         1) filter_var:ENUM("name", "genre", "actor") [OPTIONAL]
@@ -88,7 +88,7 @@
             "n": <Film>
         }
 
-***POST /api/rent***
+***POST /api/rent: done***
 
     Params:
         1) store_id:store_id
@@ -107,7 +107,7 @@
         3) -3: customer does not exist
         4) -4: staff does not exist
 
-***POST /api/query/customer***
+***POST /api/query/customer: done***
 
     Params:
         1) filter_var:ENUM("first_name", "last_name", "customer_id") [OPTIONAL]
@@ -120,7 +120,7 @@
             "customers": List[Customer]
         }
 
-***POST /api/customer/create***
+***POST /api/customer/create: done***
     
     Params:
         1) store_id:store_id
@@ -150,7 +150,7 @@
         5) -5: phone number format invalid (talk to matt)
         6) -6: geocoding error / invalid address
 
-***POST /api/customer/edit***
+***POST /api/customer/edit: done***
     
     Params:
         1) store_id:store_id
@@ -177,7 +177,7 @@
         6) -6: geocoding error / invalid address
         7) -7: customer does not exist at this store
 
-***POST /api/customer/delete***
+***POST /api/customer/delete: done***
 
     Params:
         1) customer_id
@@ -187,7 +187,7 @@
         1) -1: customer does not exist at store
         2) -2: store does not exist
 
-***POST /api/details/customer***
+***POST /api/details/customer: done***
     
     Notes:
         Will return rental records for store having store_id
@@ -208,7 +208,7 @@
         1) -1: store does not exist
         2) -2: customer does not exist at this store
 
-***POST /api/return***
+***POST /api/return: done***
 
     Params:
         1) rental_id:rental_id

@@ -77,20 +77,22 @@ class top5RentalsOutput(BaseModel):
 
 class detailsFilmOutput(BaseModel):
     status: int
-    film: Optional[FilmFull] = None
+    film: Optional[FilmFull] = []
     message: Optional[str] = None
 
 class top5ActorsOutput(BaseModel):
     status: int
-    actors: Optional[List[Actor]] #note this is accross ALL stores
- 
+    actors: Optional[List[Actor]] = [] #note this is accross ALL stores
+    message: Optional[str] = None
+
 class topNRentalsWithActorOutput(BaseModel):
     status: int
-    rentals: Optional[List[Rental]]
+    rentals: Optional[List[Rental]] = []
 
 class queryFilmsOutput(BaseModel):
     status: int
-    films: Optional[List[FilmFull]]
+    films: Optional[List[FilmFull]] = []
+    message: Optional[str] = None
 
 class Inventory(BaseOutputModel):
     inventory_id: int
