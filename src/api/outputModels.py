@@ -62,6 +62,10 @@ class Film(BaseOutputModel):
             return ",".join(sorted(map(str, v)))
         return v
 
+class RentalFull(BaseModel):
+    rental: Rental
+    film: Film
+
 class FilmFull(BaseModel):
     film: Film
     actors: List[Actor]
@@ -162,8 +166,8 @@ class CustomerFull(BaseModel):
     city: City
     country: Country
     location: Optional[dict] = None
-    rental_history: Optional[List[Rental]] = None
-    outgoing_rentals: Optional[List[Rental]] = None
+    rental_history: Optional[List[RentalFull]] = None
+    outgoing_rentals: Optional[List[RentalFull]] = None
 
 class queryCustomerOutput(BaseModel):
     status: int

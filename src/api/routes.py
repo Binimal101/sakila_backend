@@ -62,8 +62,10 @@ def t5_actors(payload: top5ActorsInput, db: Session = Depends(get_db)) -> output
         .limit(5)
     ).mappings().all()
 
-    return [output_models.Actor.model_validate(Actor(db.get(Actor, x["Actor"].actor_id))) for x in t5actors]
-
+    return output_models.top5ActorsOutput(
+        status=200,
+        actors=[output_models.Actor.model_validate(Actor(db.get(Actor, x["Actor"].actor_id))) for x in t5actors]
+    )
 @router.post("/api/top_5_rentals", response_model=output_models.top5RentalsOutput)
 def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> output_models.top5RentalsOutput:
     """Selects top 5 rentals across current store"""
@@ -386,9 +388,18 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
     
     rentals_pyd = [output_models.Rental.model_validate(r) for r in rental_rows]
     
+    rental_full_pyds = [
+        output_models.RentalFull(
+            rental=r,
+            film=(
+                db.get(Film, db.get(Inventory, r.inventory_id).film_id) # type: ignore
+            )
+        ) for r in rentals_pyd
+    ]
+
     #in-memory stratification for ease of use on cli-side
-    rental_history = [r for r in rentals_pyd if r.return_date is not None]
-    outgoing_rentals = [r for r in rentals_pyd if r.return_date is None]
+    rental_history = [r for r in rental_full_pyds if r.rental.return_date is not None]
+    outgoing_rentals = [r for r in rental_full_pyds if r.rental.return_date is None]
 
     return output_models.detailsCustomerOutput(
         customer=output_models.CustomerFull(
@@ -462,18 +473,11 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
 def return_film(payload: returnInput, db: Session = Depends(get_db)) -> output_models.returnOutput:
     """Mark rental as returned (set return_date to now)."""
     
-    if (
-        db.get(Rental, Rental.rental_id == payload.rental_id)
-    ) is None:
+    if (rental := db.get(Rental, payload.rental_id)) is None:
         return output_models.returnOutput(status=404, message="rental instance doesn't exist")
     
-    with db.begin():
-        db.execute(
-            update(Rental).where(Rental.rental_id == payload.rental_id)
-            .values(return_date = datetime.now())
-        )
-
-    db.flush()
+    rental.return_date = datetime.now()  # type: ignore
+    db.commit()
 
     return output_models.returnOutput(status=200)
 
