@@ -67,7 +67,7 @@ StrictPhoneNumber = constr(
 )
 class Address(BaseModel):
     address_line1: str
-    address_line2: Optional[str]
+    address_line2: Optional[str] = None
     district: str # ~= state
     city: str
     country: str

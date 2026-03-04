@@ -47,25 +47,26 @@ def health_check() -> Any:
 @router.post("/api/top_5_actors", response_model=output_models.top5ActorsOutput)
 def t5_actors(payload: top5ActorsInput, db: Session = Depends(get_db)) -> output_models.top5ActorsOutput:
     actor_count = func.count
-    
-    #get rows with all films
-    films = db.execute(select(Inventory).where(Inventory.store_id == payload.store_id)).scalars().all()
+
+    films = db.execute(
+        select(Inventory).where(Inventory.store_id == payload.store_id)
+    ).scalars().all()
 
     t5actors = db.execute(
-        select(FilmActor, actor_count().label("actor_count"))
-        .where(FilmActor.film_id.in_( # cool list comprehension to only select these actors
-            [x.film_id for x in films]
-        ))
-        .join(Actor, FilmActor.actor_id == Actor.actor_id)
+        select(Actor.actor_id, actor_count().label("actor_count"))
+        .join(FilmActor, FilmActor.actor_id == Actor.actor_id)
+        .where(
+            FilmActor.film_id.in_([x.film_id for x in films])
+        )
         .group_by(Actor.actor_id)
-        .order_by(actor_count(Actor.actor_id)) #TODO test this is in correct order
+        .order_by(actor_count().desc())
         .limit(5)
-    ).mappings().all()
+    ).all()
 
-    return output_models.top5ActorsOutput(
-        status=200,
-        actors=[output_models.Actor.model_validate(Actor(db.get(Actor, x["Actor"].actor_id))) for x in t5actors]
-    )
+    actor_list = [output_models.Actor.model_validate(db.get(Actor, row.actor_id))
+                  for row in t5actors]
+
+    return output_models.top5ActorsOutput(status=200, actors=actor_list)
 @router.post("/api/top_5_rentals", response_model=output_models.top5RentalsOutput)
 def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> output_models.top5RentalsOutput:
     """Selects top 5 rentals across current store"""
