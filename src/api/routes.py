@@ -10,7 +10,7 @@ from src.alchemy.models import *
 
 from src.alchemy.db import get_db
 from sqlalchemy.orm import Session
-from sqlalchemy import select, insert, update, delete, func, and_, or_, literal_column
+from sqlalchemy import select, insert, update, delete, func, and_, or_, exists
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from geoalchemy2 import WKTElement
@@ -151,26 +151,47 @@ def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> ou
 @router.post("/api/query/films", response_model=output_models.queryFilmsOutput)
 def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> output_models.queryFilmsOutput:
     """Search films by name, genre, or actor. Returns `FilmFull` objects."""
+
     stmt = select(Film)
+
+    #joins were messing up record counts and computing cart. products for each 1-n relationship
+    #fix is to stratify joins accross filter_var
 
     #case insensitive partial searchjes
     if payload.filter_var == filmFilterEnum.NAME and payload.filter_value:
         stmt = stmt.where(Film.title.ilike(f"%{payload.filter_value}%"))
     
     elif payload.filter_var == filmFilterEnum.GENRE and payload.filter_value:
-        stmt = stmt.where(Category.name.ilike(f"%{payload.filter_value}%"))
-    
-    elif payload.filter_var == filmFilterEnum.ACTOR and payload.filter_value:
-        stmt = stmt.where(or_(
-            Actor.first_name.ilike(payload.filter_value), 
-            Actor.last_name.ilike(payload.filter_value)
+        stmt = stmt.where(exists(
+            select(FilmCategory)
+            .join(Category, Category.category_id == FilmCategory.category_id)
+            .where(
+                FilmCategory.film_id == Film.film_id,
+                Category.name.ilike(f"%{payload.filter_value}%")
+            )
         ))
     
-    stmt = (stmt
-        .join(FilmCategory, FilmCategory.film_id == Film.film_id)
-        .join(Category, Category.category_id == FilmCategory.category_id)
-        .join(FilmActor, FilmActor.film_id == Film.film_id)
-        .join(Actor, Actor.actor_id == FilmActor.actor_id)
+    elif payload.filter_var == filmFilterEnum.ACTOR and payload.filter_value:
+        stmt = stmt.where(exists(
+            select(FilmActor)
+            .join(Actor, Actor.actor_id == FilmActor.actor_id)
+            .where(
+                FilmActor.film_id == Film.film_id,
+                or_(
+                    Actor.first_name.ilike(payload.filter_value),
+                    Actor.last_name.ilike(payload.filter_value)
+                )
+            )
+        ))
+
+    stmt = stmt.where( #subquery to prune by store
+        exists( 
+            select(Inventory)
+            .where(
+                Inventory.film_id == Film.film_id,
+                Inventory.store_id == payload.store_id,
+            )
+        )
     )
 
     stmt = stmt.offset(payload.offset).limit(payload.top_n)
@@ -184,7 +205,7 @@ def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> outp
     out_films: List[output_models.FilmFull] = []
 
     for film in orm_films:
-        ret = film_details(payload=detailsFilmInput(film_id=film.film_id), db=db)
+        ret = film_details(payload=detailsFilmInput(film_id=film.film_id), db=db) # type: ignore
         if ret.status != 200:
             return output_models.queryFilmsOutput(
                 status=ret.status,
@@ -412,7 +433,7 @@ def customer_details(payload: detailsCustomerInput, db: Session = Depends(get_db
     
 @router.post("/api/rent", response_model=output_models.rentOutput)
 def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_models.rentOutput:
-    """Create a Rental record for a matching inventory item.
+    """Create a Rental record for a 'random' inventory item given (store, film).
         throws err if rental is already taken out"""
 
     # validate inventory row with pydantic

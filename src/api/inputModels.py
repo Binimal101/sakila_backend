@@ -24,6 +24,7 @@ class filmFilterEnum(str, Enum):
     ACTOR = "actor"
 
 class queryFilmsInput(BaseModel):
+    store_id: int = Field(ge=1)
     filter_var: Optional[filmFilterEnum] = None
     filter_value: Optional[str] = None
     offset: int = Field(0, ge=0)
@@ -36,8 +37,8 @@ class queryFilmsInput(BaseModel):
         return self
     
 class rentInput(BaseModel):
-    inventory_id: int
     customer_id: int
+    film_id: int
     staff_id: int
 
 class customerFilterEnum(str, Enum):
@@ -46,6 +47,7 @@ class customerFilterEnum(str, Enum):
     CUSTOMER_ID = "customer_id"
 
 class queryCustomerInput(BaseModel):
+    store_id: int = Field(ge=1)
     filter_var: Optional[customerFilterEnum] = None
     filter_value: Optional[Union[str, int]] = None
     offset: int = Field(0, ge=0)
