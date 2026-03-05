@@ -119,20 +119,19 @@ def t5_rentals(payload: top5RentalsInput, db: Session = Depends(get_db)) -> outp
 @router.post("/api/details/film", response_model=output_models.detailsFilmOutput)
 def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> output_models.detailsFilmOutput:
     """Return full film details including actors and category."""
-    with db.begin():
-        filmcat = db.execute(
-            select(Film, Category).where(Film.film_id == payload.film_id)
-            .join(FilmCategory, Film.film_id == FilmCategory.film_id)
-            .join(Category, Category.category_id == FilmCategory.category_id)
-        ).mappings().first() #assumes that each film is 1-1 with its own category (all sakila is generated like this, but we have a joint table so in practice not always correct)
+
+    filmcat = db.execute( #technically could be 1-n, films-categories, but in practice (currently in db) its 1-1
+        select(Film, Category).where(Film.film_id == payload.film_id)
+        .join(FilmCategory, Film.film_id == FilmCategory.film_id)
+        .join(Category, Category.category_id == FilmCategory.category_id)
+    ).mappings().first() 
 
     if filmcat is None:
         return output_models.detailsFilmOutput(status=500, message="improper assumptions when processing film and it's categories")    
     
     film = output_models.Film.model_validate(filmcat["Film"])
     cat = filmcat["Category"].name
-    language = db.get(Language, film.language_id).name
-
+    language = db.get(Language, film.language_id).name # type: ignore
 
     actors_orm = db.execute(
         select(Actor)
@@ -146,7 +145,7 @@ def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> ou
         film=film,
         actors=actors,
         category=cat,
-        language=language,
+        language=language, # type: ignore
     ), status=200)
 
 @router.post("/api/query/films", response_model=output_models.queryFilmsOutput)
@@ -158,7 +157,7 @@ def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> outp
     if payload.filter_var == filmFilterEnum.NAME and payload.filter_value:
         stmt = stmt.where(Film.title.ilike(f"%{payload.filter_value}%"))
     
-    elif payload.filter_var == filmFilterEnum.GENRE and payload.filter_value: #TODO need to make from scratch
+    elif payload.filter_var == filmFilterEnum.GENRE and payload.filter_value:
         stmt = stmt.where(Category.name.ilike(f"%{payload.filter_value}%"))
     
     elif payload.filter_var == filmFilterEnum.ACTOR and payload.filter_value:
@@ -178,23 +177,20 @@ def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> outp
 
     orm_films = db.execute(stmt).scalars().all()
 
-    from pprint import pprint
-    pprint(orm_films)
-
     #take filtered results and make them fit output model
     if orm_films is None:
         return output_models.queryFilmsOutput(status=404, films=[], message="No films found with following filter params")
 
     out_films: List[output_models.FilmFull] = []
 
-    #too lazy to manually map, reuse old code (BAD BAD BAD)
-    for film in orm_films: #reuse film_details endpoint to map opm.Film -> FilmFull, pass existing ORM instances in
-        
-        ret = film_details(payload=detailsFilmInput(film_id=film.film_id), db=next(get_db())) # type: ignore
+    for film in orm_films:
+        ret = film_details(payload=detailsFilmInput(film_id=film.film_id), db=db)
         if ret.status != 200:
-            return output_models.queryFilmsOutput(status=ret.status, message=f"error calling film/details from film/query with fid={film.film_id}: {ret.message}")
-        
-        out_films.append(output_models.FilmFull.model_validate(ret.film)) #filmfull
+            return output_models.queryFilmsOutput(
+                status=ret.status,
+                message=f"error calling film/details from film/query with fid={film.film_id}: {ret.message}"
+            )
+        out_films.append(output_models.FilmFull.model_validate(ret.film))
 
     return output_models.queryFilmsOutput(status=200, films=out_films)
 
