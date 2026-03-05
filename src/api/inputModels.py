@@ -40,6 +40,7 @@ class rentInput(BaseModel):
     customer_id: int
     film_id: int
     staff_id: int
+    store_id: int
 
 class customerFilterEnum(str, Enum):
     FIRST_NAME = "first_name"

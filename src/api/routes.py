@@ -150,7 +150,7 @@ def film_details(payload: detailsFilmInput, db: Session = Depends(get_db)) -> ou
 
 @router.post("/api/query/films", response_model=output_models.queryFilmsOutput)
 def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> output_models.queryFilmsOutput:
-    """Search films by name, genre, or actor. Returns `FilmFull` objects."""
+    """Search unrented films by name, genre, or actor. Returns `FilmFull` objects."""
 
     stmt = select(Film)
 
@@ -184,12 +184,20 @@ def query_films(payload: queryFilmsInput, db: Session = Depends(get_db)) -> outp
             )
         ))
 
-    stmt = stmt.where( #subquery to prune by store
-        exists( 
+    #at least one copy exists unrented, and within the store
+    stmt = stmt.where(
+        exists(
             select(Inventory)
             .where(
                 Inventory.film_id == Film.film_id,
                 Inventory.store_id == payload.store_id,
+                ~exists( #bitwise not is implemented by sqlalchemy class as not
+                    select(Rental)
+                    .where(
+                        Rental.inventory_id == Inventory.inventory_id,
+                        Rental.return_date == None,
+                    )
+                ),
             )
         )
     )
@@ -436,10 +444,18 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
     """Create a Rental record for a 'random' inventory item given (store, film).
         throws err if rental is already taken out"""
 
-    # validate inventory row with pydantic
-    inv = output_models.Inventory.model_validate(
-        db.get(Inventory, payload.inventory_id)
-    )
+    inv = db.execute(
+        select(Inventory).where(
+            Inventory.film_id == payload.film_id,
+            Inventory.store_id == payload.store_id
+        ).limit(1)
+    ).scalar_one_or_none()
+
+    if inv is None:
+        return output_models.rentOutput(
+            status=500,
+            message="Film could not be rented out at store because there are no more open copies"
+        )
 
     outgoing_record = db.execute(
         select(Rental)
