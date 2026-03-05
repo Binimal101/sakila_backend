@@ -444,11 +444,21 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
     """Create a Rental record for a 'random' inventory item given (store, film).
         throws err if rental is already taken out"""
 
+    # pick one inv item that has no active rental
     inv = db.execute(
-        select(Inventory).where(
+        select(Inventory)
+        .where(
             Inventory.film_id == payload.film_id,
-            Inventory.store_id == payload.store_id
-        ).limit(1)
+            Inventory.store_id == payload.store_id,
+            ~exists(
+                select(Rental)
+                .where(
+                    Rental.inventory_id == Inventory.inventory_id,
+                    Rental.return_date == None,
+                )
+            ),
+        )
+        .limit(1)
     ).scalar_one_or_none()
 
     if inv is None:
@@ -456,18 +466,6 @@ def rent_film(payload: rentInput, db: Session = Depends(get_db)) -> output_model
             status=500,
             message="Film could not be rented out at store because there are no more open copies"
         )
-
-    outgoing_record = db.execute(
-        select(Rental)
-        .where(
-            Rental.inventory_id == inv.inventory_id,
-            Rental.return_date == None,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if outgoing_record:
-        return output_models.rentOutput(status=404, rental=None, payment=None, message="someone currently has this rented out, please try another item!")
 
     film = output_models.Film.model_validate(db.get(Film, inv.film_id))
 
